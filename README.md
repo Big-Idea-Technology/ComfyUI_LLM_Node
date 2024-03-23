@@ -1,30 +1,41 @@
 # LLM_Node for ComfyUI
-LLM_Node is a powerful and flexible Node for ComfyUI that enables users to integrate advanced language model capabilities into their ComfyUI projects. Utilizing the T5 model architecture from the transformers library, this Node can generate text, summarize content, answer questions, and more, depending on the model you choose to deploy.
+
+LLM_Node enhances ComfyUI by integrating advanced language model capabilities, enabling tasks such as text generation, content summarization, and question answering. This flexibility is powered by the renowned T5 model architecture and other transformer models, depending on the specific deployment.
 
 ## Features
-- Text generation leveraging state-of-the-art transformer models.
-- Customizable model and tokenizer paths, allowing for the use of specialized models tailored to specific tasks.
-- Dynamic token limit for generation, allowing control over the length of generated content.
-- Simple integration into ComfyUI workflows for enriching applications with natural language processing capabilities.
 
-## Installation
-This Node is designed for use within ComfyUI. Ensure ComfyUI is installed and operational in your environment. Place the `LLM_Node` class in the `custom_nodes` directory within your ComfyUI folder. For detailed installation instructions for ComfyUI, refer to the official ComfyUI documentation.
+- **Text Generation:** Utilize advanced transformer models for dynamic text creation.
+- **Customizable Model Integration:** Specify paths within the `models/LLM_checkpoints` directory for using specialized models tailored to specific NLP tasks.
+- **Control Over Content Length:** Manage the length of generated content with an adjustable token limit.
+- **Seamless Workflow Integration:** Designed for easy integration with ComfyUI workflows, enhancing applications with powerful NLP functionalities.
 
-### Add the Node to Your Project:
-Ensure the LLM_Node class is correctly integrated into your ComfyUI setup. The class file should be located in a `custom_nodes` directory that is accessible by your ComfyUI project.
+## Installation and Setup
 
-### Configure the Node:
-Configure the LLM_Node with the necessary parameters within your ComfyUI project:
+Ensure ComfyUI is installed and operational in your environment before adding the LLM_Node. Follow these steps for installation:
 
-- `text`: Input text for the language model to process.
-- `tokenizer`: Path to the tokenizer for the model.
-- `model`: Path to the transformer model.
-- `max_tokens`: Maximum number of tokens for the generated text.
+1. **Prepare the Models Directory:**
+   - Create a directory named `LLM_checkpoints` within the `models` directory of your ComfyUI environment.
+   - Place your transformer model directories or files in `LLM_checkpoints`. Each model directory should contain the necessary model and tokenizer files.
 
-These parameters allow for flexible use of the Node, whether you're generating text, summarizing content, or implementing other language-based tasks.
+2. **Node Integration:**
+   - Copy the `LLM_Node` class file into the `custom_nodes` directory accessible by your ComfyUI project.
+
+3. **Configuration:**
+   - Within your ComfyUI project, configure the LLM_Node with the necessary parameters:
+     - `text`: The input text for the language model to process.
+     - `model`: The directory name of the model within `models/LLM_checkpoints` you wish to use.
+     - `max_tokens`: The maximum number of tokens for the generated text (adjustable according to your needs).
+
+The node is now ready to enrich your ComfyUI applications with a variety of NLP capabilities.
+
+## Contributing
+
+Contributions to enhance the LLM_Node or add new functionalities are welcome. Please adhere to the project's coding standards and submit pull requests for review.
 
 ## License
-The LLM_Node is released under the MIT License. You are free to use and modify the LLM_Node for your personal or commercial projects.
 
-## Credit
-Special thanks to the open-source community and the developers behind the transformers library for providing the tools necessary to build this Node.
+The LLM_Node is released under the MIT License. Feel free to use and modify it for your personal or commercial projects.
+
+## Acknowledgments
+
+Special thanks to the open-source community and the contributors to the transformers library for providing the foundational tools that make this Node possible.
