@@ -17,12 +17,13 @@ class LLM_Node:
     @classmethod
     def INPUT_TYPES(cls):
         # Get a list of directories in the checkpoints_path
-        model_options = next(os.walk(GLOBAL_MODELS_DIR), (None, [], None))[1]
+        model_options = [name for name in os.listdir(GLOBAL_MODELS_DIR)
+                         if os.path.isdir(os.path.join(GLOBAL_MODELS_DIR, name))]
 
         return {
             "required": {
                 "text": ("STRING", {"multiline": True, "default": ""}),
-                "model": ("STRING", {"default": model_options[0] if model_options else "none", "options": model_options}),
+                "model": (model_options, ),
                 "max_tokens": ("INT", {"default": 2000}),
             }
         }
@@ -40,7 +41,7 @@ class LLM_Node:
         config = AutoConfig.from_pretrained(model_path)
         tokenizer = AutoTokenizer.from_pretrained(model_path)
 
-        # Distinguish between different model types appropriately
+        # Loading the model based on its type, with trust_remote_code=True
         if config.model_type == "t5":
             model = AutoModelForSeq2SeqLM.from_pretrained(model_path)
         elif config.model_type in ["gpt2"]:
