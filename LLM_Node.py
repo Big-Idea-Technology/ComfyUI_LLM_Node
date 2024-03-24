@@ -31,7 +31,7 @@ class LLM_Node:
                 "max_tokens": ("INT", {"default": 2000, "min": 1}),
                 "temperature": ("FLOAT", {"default": 1.0, "min": 0.1, "step": 0.1}),
                 "top_p": ("FLOAT", {"default": 0.9, "min": 0.1, "step": 0.1}),
-                "top_k": ("INT", {"default": 50, "min": 1}),
+                "top_k": ("INT", {"default": 50, "min": 0}),
                 "repetition_penalty": ("FLOAT", {"default": 1.2, "min": 0.1, "step": 0.1}),
                 "trust_remote_code": ("BOOLEAN", {"default": False}),
                 "torch_dtype": (dtype_options, {"default": "auto"}),
