@@ -24,9 +24,10 @@ Configure the LLM_Node with the necessary parameters within your ComfyUI project
 - `text`: The input text for the language model to process.
 - `model`: The directory name of the model within `models/LLM_checkpoints` you wish to use.
 - `max_tokens`: Maximum number of tokens for the generated text, adjustable according to your needs.
-- `temperature`, `top_p`, `top_k`, `repetition_penalty`: Fine-tune the text generation process with these parameters to control creativity and diversity.
-- `trust_remote_code`: A boolean flag to allow or prevent the execution of remote code within loaded models, enhancing security.
-- `torch_dtype`: Specify the preferred tensor data type (`"float32"`, `"bfloat16"`, `"float16"`, `"float64"`, or `"auto"` for automatic selection based on device capabilities).
+
+- Advanced Options Node (`AdvOptions`): 
+  - Fine-tune the generation process with parameters such as `temperature`, `top_p`, `top_k`, and `repetition_penalty`.
+  - Control security via `trust_remote_code` and performance through `torch_dtype`.
 
 ## Advanced Configuration Parameters
 
@@ -46,6 +47,13 @@ The `LLM_Node` offers a range of configurable parameters allowing for precise co
 
 These parameters provide granular control over the text generation capabilities of the `LLM_Node`, allowing users to fine-tune the behavior of the underlying models to best fit their application requirements.
 
+## Quantization Config Node
+
+The Quantization Config Node offers options for model quantization, balancing performance and precision. For configurations and usage, check https://huggingface.co/docs/transformers/main_classes/quantization#transformers.BitsAndBytesConfig
+
+## Output Node
+
+The Output Node is a new addition that formats the generated text to ensure it is presented in a clear and readable manner. It handles the arrangement of text, spacing, and alignment, significantly improving the output's usability for further processing or display.
 
 ## Contributing
 Contributions to enhance the LLM_Node, add support for more models, or improve functionality are welcome. Please adhere to the project's contribution guidelines when submitting pull requests.
