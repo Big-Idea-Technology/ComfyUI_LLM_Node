@@ -33,7 +33,6 @@ class LLM_Node:
         # Get a list of directories in the checkpoints_path
         model_options = [name for name in os.listdir(GLOBAL_MODELS_DIR)
                          if os.path.isdir(os.path.join(GLOBAL_MODELS_DIR, name))]
-        dtype_options = ["auto", "float64", "float32", "float16", "bfloat16"]
 
         return {
             "required": {
@@ -54,7 +53,7 @@ class LLM_Node:
     FUNCTION = "main"
     CATEGORY = "LLM"
 
-    def main(self, text, seed, model, max_tokens, AdvOptions=None, QuantizationConfig=None):
+    def main(self, text, seed, model, max_tokens, AdvOptionsConfig=None, QuantizationConfig=None):
         model_path = os.path.join(GLOBAL_MODELS_DIR, model)
         torch.manual_seed(seed)
 
@@ -64,14 +63,14 @@ class LLM_Node:
             'quantization_config': QuantizationConfig
         }
 
-        if AdvOptions:
-            # Only include trust_remote_code if it's explicitly provided in AdvOptions
-            if 'trust_remote_code' in AdvOptions:
-                model_kwargs['trust_remote_code'] = AdvOptions['trust_remote_code']
+        if AdvOptionsConfig:
+            # Only include trust_remote_code if it's explicitly provided in AdvOptionsConfig
+            if 'trust_remote_code' in AdvOptionsConfig:
+                model_kwargs['trust_remote_code'] = AdvOptionsConfig['trust_remote_code']
             
             # Determine torch_dtype
-            if 'torch_dtype' in AdvOptions and hasattr(torch, AdvOptions['torch_dtype']):
-                model_kwargs['torch_dtype'] = getattr(torch, AdvOptions['torch_dtype'])
+            if 'torch_dtype' in AdvOptionsConfig and hasattr(torch, AdvOptionsConfig['torch_dtype']):
+                model_kwargs['torch_dtype'] = getattr(torch, AdvOptionsConfig['torch_dtype'])
 
         # Load the model and tokenizer based on the model's configuration
         config = AutoConfig.from_pretrained(model_path, **model_kwargs)
@@ -80,7 +79,7 @@ class LLM_Node:
         # Dynamically loading the model based on its type
         if config.model_type == "t5":
             model = AutoModelForSeq2SeqLM.from_pretrained(model_path, **model_kwargs)
-        elif config.model_type in ["gpt2", "gpt_refact"]:
+        elif config.model_type in ["gpt2", "gpt_refact", "gemma"]:
             model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
         elif config.model_type == "bert":
             model = AutoModelForSequenceClassification.from_pretrained(model_path, **model_kwargs)
@@ -91,12 +90,12 @@ class LLM_Node:
         generate_kwargs = {'max_length': max_tokens}
         
         # Append only the explicitly provided generation options
-        if AdvOptions:
+        if AdvOptionsConfig:
             for option in ['temperature', 'top_p', 'top_k', 'repetition_penalty']:
-                if option in AdvOptions:
-                    generate_kwargs[option] = AdvOptions[option]
+                if option in AdvOptionsConfig:
+                    generate_kwargs[option] = AdvOptionsConfig[option]
 
-        if config.model_type in ["t5", "gpt2", "gpt_refact"]:
+        if config.model_type in ["t5", "gpt2", "gpt_refact", "gemma"]:
             input_ids = tokenizer(text, return_tensors="pt").input_ids.to(self.device)
             outputs = model.generate(input_ids, **generate_kwargs)
             generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
@@ -190,6 +189,7 @@ class AdvOptionsNode:
     FUNCTION = "main"
     CATEGORY = "LLM"
     RETURN_TYPES = ("ADVOPTIONSCONFIG",)
+    RETURN_NAMES = ("AdvOptionsConfig",)
 
     def main(self, temperature=1.0, top_p=0.9, top_k=50, repetition_penalty=1.2, trust_remote_code=False, torch_dtype="auto"):
         options_config = {
