@@ -64,13 +64,27 @@ class LLM_Node:
     def main(self, text, seed, model, max_tokens, AdvOptionsConfig=None, QuantizationConfig=None):
         model_path = os.path.join(GLOBAL_MODELS_DIR, model)
         if "GGUF" in model:
+            # Prepare for generation
+            generate_kwargs = {'max_tokens': max_tokens}
+
+            # Append only the explicitly provided generation options
+            if AdvOptionsConfig:
+                for option in ['temperature', 'top_p', 'top_k', 'repetition_penalty']:
+                    if option in AdvOptionsConfig:
+                        if (option == 'repetition_penalty'):
+                            option1 = 'repeat_penalty'
+                        else:
+                            option1 = option
+                        generate_kwargs[option1] = AdvOptionsConfig[option]
+
+
             model = Llama(
                 model_path=model_path,
                 n_gpu_layers=-1,
                 seed=seed,
                 # n_ctx=2048, # Uncomment to increase the context window
             )
-            generated_text = model(text, max_tokens=max_tokens)
+            generated_text = model(text, **generate_kwargs)
             return (generated_text['choices'][0]['text'],)
         else:
             torch.manual_seed(seed)
@@ -93,9 +107,7 @@ class LLM_Node:
             # Load the model and tokenizer based on the model's configuration
             config = AutoConfig.from_pretrained(model_path, **model_kwargs)
             tokenizer = AutoTokenizer.from_pretrained(model_path)
-
-            
-            
+ 
             # Dynamically loading the model based on its type
             if config.model_type == "t5":
                 model = AutoModelForSeq2SeqLM.from_pretrained(model_path, **model_kwargs)
