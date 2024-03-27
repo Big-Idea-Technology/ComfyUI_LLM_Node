@@ -6,6 +6,7 @@ from transformers import (
     AutoConfig,
     BitsAndBytesConfig
 )
+from llama_cpp import Llama
 import torch
 import os
 import folder_paths
@@ -31,8 +32,15 @@ class LLM_Node:
     @classmethod
     def INPUT_TYPES(cls):
         # Get a list of directories in the checkpoints_path
-        model_options = [name for name in os.listdir(GLOBAL_MODELS_DIR)
-                         if os.path.isdir(os.path.join(GLOBAL_MODELS_DIR, name))]
+        model_options = []
+        for name in os.listdir(GLOBAL_MODELS_DIR):
+            dir_path = os.path.join(GLOBAL_MODELS_DIR, name)
+            if os.path.isdir(dir_path):
+                if "GGUF" in name:
+                    gguf_files = [os.path.join(name, file) for file in os.listdir(dir_path) if file.endswith('.gguf')]
+                    model_options.extend(gguf_files)
+                else:
+                    model_options.append(name)
 
         return {
             "required": {
@@ -55,53 +63,65 @@ class LLM_Node:
 
     def main(self, text, seed, model, max_tokens, AdvOptionsConfig=None, QuantizationConfig=None):
         model_path = os.path.join(GLOBAL_MODELS_DIR, model)
-        torch.manual_seed(seed)
-
-        # Initialize model_kwargs without torch_dtype or other optional params
-        model_kwargs = {
-            'device_map': 'auto',
-            'quantization_config': QuantizationConfig
-        }
-
-        if AdvOptionsConfig:
-            # Only include trust_remote_code if it's explicitly provided in AdvOptionsConfig
-            if 'trust_remote_code' in AdvOptionsConfig:
-                model_kwargs['trust_remote_code'] = AdvOptionsConfig['trust_remote_code']
-            
-            # Determine torch_dtype
-            if 'torch_dtype' in AdvOptionsConfig and hasattr(torch, AdvOptionsConfig['torch_dtype']):
-                model_kwargs['torch_dtype'] = getattr(torch, AdvOptionsConfig['torch_dtype'])
-
-        # Load the model and tokenizer based on the model's configuration
-        config = AutoConfig.from_pretrained(model_path, **model_kwargs)
-        tokenizer = AutoTokenizer.from_pretrained(model_path)
-
-        # Dynamically loading the model based on its type
-        if config.model_type == "t5":
-            model = AutoModelForSeq2SeqLM.from_pretrained(model_path, **model_kwargs)
-        elif config.model_type in ["gpt2", "gpt_refact", "gemma"]:
-            model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
-        elif config.model_type == "bert":
-            model = AutoModelForSequenceClassification.from_pretrained(model_path, **model_kwargs)
+        if "GGUF" in model:
+            model = Llama(
+                model_path=model_path,
+                n_gpu_layers=-1,
+                seed=seed,
+                # n_ctx=2048, # Uncomment to increase the context window
+            )
+            generated_text = model(text, max_tokens=max_tokens)
+            return (generated_text['choices'][0]['text'],)
         else:
-            raise ValueError(f"Unsupported model type: {config.model_type}")
+            torch.manual_seed(seed)
 
-        # Prepare for generation
-        generate_kwargs = {'max_length': max_tokens}
-        
-        # Append only the explicitly provided generation options
-        if AdvOptionsConfig:
-            for option in ['temperature', 'top_p', 'top_k', 'repetition_penalty']:
-                if option in AdvOptionsConfig:
-                    generate_kwargs[option] = AdvOptionsConfig[option]
+            # Initialize model_kwargs without torch_dtype or other optional params
+            model_kwargs = {
+                'device_map': 'auto',
+                'quantization_config': QuantizationConfig
+            }
 
-        if config.model_type in ["t5", "gpt2", "gpt_refact", "gemma"]:
-            input_ids = tokenizer(text, return_tensors="pt").input_ids.to(self.device)
-            outputs = model.generate(input_ids, **generate_kwargs)
-            generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-            return (generated_text,)
-        elif config.model_type == "bert":
-            return ("BERT model detected; specific task handling not implemented in this example.",)
+            if AdvOptionsConfig:
+                # Only include trust_remote_code if it's explicitly provided in AdvOptionsConfig
+                if 'trust_remote_code' in AdvOptionsConfig:
+                    model_kwargs['trust_remote_code'] = AdvOptionsConfig['trust_remote_code']
+                
+                # Determine torch_dtype
+                if 'torch_dtype' in AdvOptionsConfig and hasattr(torch, AdvOptionsConfig['torch_dtype']):
+                    model_kwargs['torch_dtype'] = getattr(torch, AdvOptionsConfig['torch_dtype'])
+
+            # Load the model and tokenizer based on the model's configuration
+            config = AutoConfig.from_pretrained(model_path, **model_kwargs)
+            tokenizer = AutoTokenizer.from_pretrained(model_path)
+
+            
+            
+            # Dynamically loading the model based on its type
+            if config.model_type == "t5":
+                model = AutoModelForSeq2SeqLM.from_pretrained(model_path, **model_kwargs)
+            elif config.model_type in ["gpt2", "gpt_refact", "gemma"]:
+                model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
+            elif config.model_type == "bert":
+                model = AutoModelForSequenceClassification.from_pretrained(model_path, **model_kwargs)
+            else:
+                raise ValueError(f"Unsupported model type: {config.model_type}")
+
+            # Prepare for generation
+            generate_kwargs = {'max_length': max_tokens}
+            
+            # Append only the explicitly provided generation options
+            if AdvOptionsConfig:
+                for option in ['temperature', 'top_p', 'top_k', 'repetition_penalty']:
+                    if option in AdvOptionsConfig:
+                        generate_kwargs[option] = AdvOptionsConfig[option]
+
+            if config.model_type in ["t5", "gpt2", "gpt_refact", "gemma"]:
+                input_ids = tokenizer(text, return_tensors="pt").input_ids.to(self.device)
+                outputs = model.generate(input_ids, **generate_kwargs)
+                generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                return (generated_text,)
+            elif config.model_type == "bert":
+                return ("BERT model detected; specific task handling not implemented in this example.",)
 
 class Output_Node:
     def __init__(self):
