@@ -111,7 +111,7 @@ class LLM_Node:
             # Dynamically loading the model based on its type
             if config.model_type == "t5":
                 model = AutoModelForSeq2SeqLM.from_pretrained(model_path, **model_kwargs)
-            elif config.model_type in ["gpt2", "gpt_refact", "gemma"]:
+            elif config.model_type in ["gpt2", "gpt_refact", "gemma", "llama", "mistral"]:
                 model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
             elif config.model_type == "bert":
                 model = AutoModelForSequenceClassification.from_pretrained(model_path, **model_kwargs)
@@ -127,7 +127,7 @@ class LLM_Node:
                     if option in AdvOptionsConfig:
                         generate_kwargs[option] = AdvOptionsConfig[option]
 
-            if config.model_type in ["t5", "gpt2", "gpt_refact", "gemma"]:
+            if config.model_type in ["t5", "gpt2", "gpt_refact", "gemma", "llama", "mistral"]:
                 input_ids = tokenizer(text, return_tensors="pt").input_ids.to(self.device)
                 outputs = model.generate(input_ids, **generate_kwargs)
                 generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
