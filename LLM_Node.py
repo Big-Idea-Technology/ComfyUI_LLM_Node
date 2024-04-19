@@ -48,6 +48,7 @@ class LLM_Node:
                 "seed": ("INT", {"default": 777}),
                 "model": (model_options, ),
                 "max_tokens": ("INT", {"default": 2000, "min": 1}),
+                "apply_chat_template": ("BOOLEAN", {"default": False}),
             },
             "optional": {
                 "AdvOptionsConfig": ("ADVOPTIONSCONFIG",),
@@ -61,7 +62,7 @@ class LLM_Node:
     FUNCTION = "main"
     CATEGORY = "LLM"
 
-    def main(self, text, seed, model, max_tokens, AdvOptionsConfig=None, QuantizationConfig=None):
+    def main(self, text, seed, model, max_tokens, apply_chat_template, AdvOptionsConfig=None, QuantizationConfig=None):
         model_path = os.path.join(GLOBAL_MODELS_DIR, model)
         if "GGUF" in model:
             # Prepare for generation
@@ -107,11 +108,22 @@ class LLM_Node:
             # Load the model and tokenizer based on the model's configuration
             config = AutoConfig.from_pretrained(model_path, **model_kwargs)
             tokenizer = AutoTokenizer.from_pretrained(model_path)
+
+            if apply_chat_template:
+                messages = [
+                    {"role": "system", "content": "You are a helpful assistant."},
+                    {"role": "user", "content": text}
+                ]
+                text = tokenizer.apply_chat_template(
+                    messages,
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
  
             # Dynamically loading the model based on its type
             if config.model_type == "t5":
                 model = AutoModelForSeq2SeqLM.from_pretrained(model_path, **model_kwargs)
-            elif config.model_type in ["gpt2", "gpt_refact", "gemma", "llama", "mistral"]:
+            elif config.model_type in ["gpt2", "gpt_refact", "gemma", "llama", "mistral", "qwen2"]:
                 model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
             elif config.model_type == "bert":
                 model = AutoModelForSequenceClassification.from_pretrained(model_path, **model_kwargs)
@@ -127,10 +139,18 @@ class LLM_Node:
                     if option in AdvOptionsConfig:
                         generate_kwargs[option] = AdvOptionsConfig[option]
 
-            if config.model_type in ["t5", "gpt2", "gpt_refact", "gemma", "llama", "mistral"]:
-                input_ids = tokenizer(text, return_tensors="pt").input_ids.to(self.device)
+            if config.model_type in ["t5", "gpt2", "gpt_refact", "gemma", "llama", "mistral", "qwen2"]:
+                input_ids = tokenizer([text], return_tensors="pt").input_ids.to(self.device)
                 outputs = model.generate(input_ids, **generate_kwargs)
-                generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+                if apply_chat_template:
+                    # Extract only the newly generated part of the text, skipping the template part
+                    generated_ids = [output_ids[len(input_id):] for input_id, output_ids in zip(input_ids, outputs)]
+                    generated_text = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+                else:
+                    # Decode normally when not using the chat template
+                    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                
                 return (generated_text,)
             elif config.model_type == "bert":
                 return ("BERT model detected; specific task handling not implemented in this example.",)
