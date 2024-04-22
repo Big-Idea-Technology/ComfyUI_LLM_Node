@@ -10,6 +10,8 @@ from llama_cpp import Llama
 import torch
 import os
 import folder_paths
+import re
+import subprocess
 
 GLOBAL_MODELS_DIR = os.path.join(folder_paths.models_dir, "LLM_checkpoints")
 
@@ -53,6 +55,7 @@ class LLM_Node:
             "optional": {
                 "AdvOptionsConfig": ("ADVOPTIONSCONFIG",),
                 "QuantizationConfig": ("QUANTIZATIONCONFIG",),
+                "CodingConfig": ("CODINGCONFIG",),
             }
         }
 
@@ -62,13 +65,35 @@ class LLM_Node:
     FUNCTION = "main"
     CATEGORY = "LLM"
 
-    def main(self, text, seed, model, max_tokens, apply_chat_template, AdvOptionsConfig=None, QuantizationConfig=None):
+    def generate_text(self, text, tokenizer, model_to_use, generate_kwargs, apply_chat_template):
+        if apply_chat_template:
+            messages = [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": text}
+            ]
+            text = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+
+        input_ids = tokenizer([text], return_tensors="pt").input_ids.to(self.device)
+        outputs = model_to_use.generate(input_ids, **generate_kwargs)
+
+        if apply_chat_template:
+            generated_ids = [output_ids[len(input_id):] for input_id, output_ids in zip(input_ids, outputs)]
+            generated_text = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
+        else:
+            generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+
+        return generated_text
+
+    def main(self, text, seed, model, max_tokens, apply_chat_template, AdvOptionsConfig=None, QuantizationConfig=None, CodingConfig=None):
         model_path = os.path.join(GLOBAL_MODELS_DIR, model)
+        generated_text = None
         if "GGUF" in model:
-            # Prepare for generation
             generate_kwargs = {'max_tokens': max_tokens}
 
-            # Append only the explicitly provided generation options
             if AdvOptionsConfig:
                 for option in ['temperature', 'top_p', 'top_k', 'repetition_penalty']:
                     if option in AdvOptionsConfig:
@@ -79,79 +104,76 @@ class LLM_Node:
                         generate_kwargs[option1] = AdvOptionsConfig[option]
 
 
-            model = Llama(
+            model_to_use = Llama(
                 model_path=model_path,
                 n_gpu_layers=-1,
                 seed=seed,
                 # n_ctx=2048, # Uncomment to increase the context window
             )
-            generated_text = model(text, **generate_kwargs)
+            generated_text = model_to_use(text, **generate_kwargs)
             return (generated_text['choices'][0]['text'],)
         else:
             torch.manual_seed(seed)
 
-            # Initialize model_kwargs without torch_dtype or other optional params
             model_kwargs = {
                 'device_map': 'auto',
                 'quantization_config': QuantizationConfig
             }
 
             if AdvOptionsConfig:
-                # Only include trust_remote_code if it's explicitly provided in AdvOptionsConfig
                 if 'trust_remote_code' in AdvOptionsConfig:
                     model_kwargs['trust_remote_code'] = AdvOptionsConfig['trust_remote_code']
                 
-                # Determine torch_dtype
                 if 'torch_dtype' in AdvOptionsConfig and hasattr(torch, AdvOptionsConfig['torch_dtype']):
                     model_kwargs['torch_dtype'] = getattr(torch, AdvOptionsConfig['torch_dtype'])
 
-            # Load the model and tokenizer based on the model's configuration
             config = AutoConfig.from_pretrained(model_path, **model_kwargs)
             tokenizer = AutoTokenizer.from_pretrained(model_path)
-
-            if apply_chat_template:
-                messages = [
-                    {"role": "system", "content": "You are a helpful assistant."},
-                    {"role": "user", "content": text}
-                ]
-                text = tokenizer.apply_chat_template(
-                    messages,
-                    tokenize=False,
-                    add_generation_prompt=True
-                )
  
-            # Dynamically loading the model based on its type
             if config.model_type == "t5":
-                model = AutoModelForSeq2SeqLM.from_pretrained(model_path, **model_kwargs)
+                model_to_use = AutoModelForSeq2SeqLM.from_pretrained(model_path, **model_kwargs)
             elif config.model_type in ["gpt2", "gpt_refact", "gemma", "llama", "mistral", "qwen2"]:
-                model = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
+                model_to_use = AutoModelForCausalLM.from_pretrained(model_path, **model_kwargs)
             elif config.model_type == "bert":
-                model = AutoModelForSequenceClassification.from_pretrained(model_path, **model_kwargs)
+                model_to_use = AutoModelForSequenceClassification.from_pretrained(model_path, **model_kwargs)
             else:
                 raise ValueError(f"Unsupported model type: {config.model_type}")
 
-            # Prepare for generation
             generate_kwargs = {'max_length': max_tokens}
-            
-            # Append only the explicitly provided generation options
+
             if AdvOptionsConfig:
                 for option in ['temperature', 'top_p', 'top_k', 'repetition_penalty']:
                     if option in AdvOptionsConfig:
                         generate_kwargs[option] = AdvOptionsConfig[option]
 
             if config.model_type in ["t5", "gpt2", "gpt_refact", "gemma", "llama", "mistral", "qwen2"]:
-                input_ids = tokenizer([text], return_tensors="pt").input_ids.to(self.device)
-                outputs = model.generate(input_ids, **generate_kwargs)
-
-                if apply_chat_template:
-                    # Extract only the newly generated part of the text, skipping the template part
-                    generated_ids = [output_ids[len(input_id):] for input_id, output_ids in zip(input_ids, outputs)]
-                    generated_text = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
-                else:
-                    # Decode normally when not using the chat template
-                    generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
+                generated_text = self.generate_text(text, tokenizer, model_to_use, generate_kwargs, apply_chat_template)
                 
-                return (generated_text,)
+                if CodingConfig and CodingConfig.get('execute_code'):
+                    execution_attempts = 0
+                    while True:
+                        pattern = r'```python\s(.*?)```'
+                        code = re.search(pattern, generated_text, re.DOTALL)
+                        if code:
+                            extracted_code = code.group(1).strip()
+                            try:
+                                command = ['python', '-c', extracted_code]
+                                result = subprocess.run(command, capture_output=True, text=True, check=True)
+                                print("Output:", result.stdout)
+                                print("Successful Execution. Exiting loop.")
+                                break
+                            except subprocess.CalledProcessError as e:
+                                print(f"Execution failed, retrying... Error: {e.stderr}")
+                                text = f"Error encountered: {e.stderr}\nFix the code. Write whole code.\n{extracted_code}"
+                                generated_text = self.generate_text(text, tokenizer, model_to_use, generate_kwargs, apply_chat_template)
+                                continue
+                        execution_attempts += 1
+                        if execution_attempts > 10:
+                            print("Maximum execution attempts reached, exiting.")
+                            break
+                    return (generated_text,)
+                else:
+                    return (generated_text,)
             elif config.model_type == "bert":
                 return ("BERT model detected; specific task handling not implemented in this example.",)
 
@@ -254,12 +276,34 @@ class AdvOptionsNode:
         }
 
         return (options_config,)
+
+class CodingOptionsNode:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "execute_code": ("BOOLEAN", {"default": False}),
+            }
+        }
+
+    FUNCTION = "main"
+    CATEGORY = "LLM"
+    RETURN_TYPES = ("CODINGCONFIG",)
+    RETURN_NAMES = ("CodingConfig",)
+
+    def main(self, execute_code):
+
+        return ({"execute_code":execute_code,},)
     
 NODE_CLASS_MAPPINGS = {
     "LLM_Node": LLM_Node,
     "Output_Node": Output_Node,
     "QuantizationConfig_Node": QuantizationConfig_Node,
     "AdvOptions_Node": AdvOptionsNode,
+    "CodingOptionsNode": CodingOptionsNode,
 }
 
 NODE_DISPLAY_NAME_MAPPINGS = {
@@ -267,4 +311,5 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Output_Node": "Output Node",
     "QuantizationConfig_Node": "Quantization Config Node",
     "AdvOptions_Node": "Advanced Options Node",
+    "CodingOptionsNode": "Code Config Node",
 }
