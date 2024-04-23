@@ -121,6 +121,7 @@ class LLM_Node:
                 # n_ctx=2048, # Uncomment to increase the context window
             )
             generated_text = model_to_use(text, **generate_kwargs)
+            self.log_history(text, generated_text['choices'][0]['text'])
             return (generated_text['choices'][0]['text'],)
         else:
             torch.manual_seed(seed)
