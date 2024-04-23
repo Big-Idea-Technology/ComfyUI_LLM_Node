@@ -12,6 +12,7 @@ import os
 import folder_paths
 import re
 import subprocess
+import datetime
 
 GLOBAL_MODELS_DIR = os.path.join(folder_paths.models_dir, "LLM_checkpoints")
 
@@ -64,6 +65,15 @@ class LLM_Node:
     OUTPUT_NODE = False
     FUNCTION = "main"
     CATEGORY = "LLM"
+
+    def log_history(self, user_text, generated_text):
+        history_dir = os.path.join(folder_paths.folder_names_and_paths['custom_nodes'][0][0], "ComfyUI_LLM_Node/history")
+        timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        filename = datetime.datetime.now().strftime('%Y-%m-%d') + '.txt'
+        filepath = os.path.join(history_dir, filename)
+        with open(filepath, 'a') as file:
+            file.write(f"{timestamp} - User: {user_text}\n")
+            file.write(f"{timestamp} - Generated: {generated_text}\n\n")
 
     def generate_text(self, text, tokenizer, model_to_use, generate_kwargs, apply_chat_template):
         if apply_chat_template:
@@ -171,8 +181,10 @@ class LLM_Node:
                         if execution_attempts > 10:
                             print("Maximum execution attempts reached, exiting.")
                             break
+                    self.log_history(text, generated_text)
                     return (generated_text,)
                 else:
+                    self.log_history(text, generated_text)
                     return (generated_text,)
             elif config.model_type == "bert":
                 return ("BERT model detected; specific task handling not implemented in this example.",)
