@@ -66,6 +66,22 @@ class LLM_Node:
     FUNCTION = "main"
     CATEGORY = "LLM"
 
+    def ensure_dir(self, directory):
+        """Ensure that a directory exists, and create it if it doesn't."""
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+            print(f"Created directory: {directory}")
+        else:
+            print(f"Directory already exists: {directory}")
+    
+    def save_file(self, data, filename, full_path):
+        """Save data to a file within a specific subdirectory of the project folder."""
+        self.ensure_dir(full_path)
+        file_path = os.path.join(full_path, filename)
+        with open(file_path, 'w') as file:
+            file.write(data)
+        print(f"File saved: {file_path}")
+
     def log_history(self, user_text, generated_text):
         history_dir = os.path.join(folder_paths.folder_names_and_paths['custom_nodes'][0][0], "ComfyUI_LLM_Node/history")
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -168,9 +184,10 @@ class LLM_Node:
                         if code:
                             extracted_code = code.group(1).strip()
                             try:
+                                env = os.environ.copy()
+                                env["SDL_VIDEODRIVER"] = "dummy"
                                 command = ['python', '-c', extracted_code]
-                                result = subprocess.run(command, capture_output=True, text=True, check=True)
-                                print("Output:", result.stdout)
+                                subprocess.run(command, capture_output=True, text=True, check=True, env=env) # no output only check for errors
                                 print("Successful Execution. Exiting loop.")
                                 break
                             except subprocess.CalledProcessError as e:
@@ -183,6 +200,10 @@ class LLM_Node:
                             print("Maximum execution attempts reached, exiting.")
                             break
                     self.log_history(text, generated_text)
+                    if (CodingConfig.get('project_folder')):
+                        self.save_file(extracted_code, 'main.py', CodingConfig.get('project_folder'))
+                        file_path = os.path.join(CodingConfig.get('project_folder'), 'main.py')
+                        subprocess.run(['python', file_path], capture_output=True, text=True, check=True)
                     return (generated_text,)
                 else:
                     self.log_history(text, generated_text)
@@ -299,6 +320,7 @@ class CodingOptionsNode:
         return {
             "required": {
                 "execute_code": ("BOOLEAN", {"default": False}),
+                "project_folder": ("STRING", {"default": "/projects/LLM"}),
             }
         }
 
@@ -307,9 +329,9 @@ class CodingOptionsNode:
     RETURN_TYPES = ("CODINGCONFIG",)
     RETURN_NAMES = ("CodingConfig",)
 
-    def main(self, execute_code):
+    def main(self, execute_code, project_folder):
 
-        return ({"execute_code":execute_code,},)
+        return ({"execute_code":execute_code,"project_folder":project_folder},)
     
 NODE_CLASS_MAPPINGS = {
     "LLM_Node": LLM_Node,
