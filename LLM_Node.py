@@ -13,6 +13,7 @@ import folder_paths
 import re
 import subprocess
 import datetime
+import shutil
 
 GLOBAL_MODELS_DIR = os.path.join(folder_paths.models_dir, "LLM_checkpoints")
 
@@ -29,8 +30,11 @@ any = AnyType("*")
 class LLM_Node:
     def __init__(self, device="cuda"):
         self.device = device
+        self.custom_nodes_folder = folder_paths.folder_names_and_paths['custom_nodes'][0][0]
+        self.comfy_ui_llm_node_path = os.path.join(self.custom_nodes_folder, "ComfyUI_LLM_Node")
         # Check if bfloat16 is supported by the device
         self.supports_bfloat16 = 'cuda' in device and torch.cuda.is_bf16_supported()
+        self.fixmeused = False
 
     @classmethod
     def INPUT_TYPES(cls):
@@ -66,24 +70,48 @@ class LLM_Node:
     FUNCTION = "main"
     CATEGORY = "LLM"
 
-    def ensure_dir(self, directory):
-        """Ensure that a directory exists, and create it if it doesn't."""
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-            print(f"Created directory: {directory}")
-        else:
-            print(f"Directory already exists: {directory}")
-    
-    def save_file(self, data, filename, full_path):
-        """Save data to a file within a specific subdirectory of the project folder."""
-        self.ensure_dir(full_path)
-        file_path = os.path.join(full_path, filename)
-        with open(file_path, 'w') as file:
-            file.write(data)
-        print(f"File saved: {file_path}")
+    def fixme(self, filename, tokenizer, model_to_use, generate_kwargs, apply_chat_template, text):
+        self.fixmeused = True
+        
+        file_path = os.path.join(self.comfy_ui_llm_node_path, "tmp", filename)
+
+        try:
+            generated_text = self.generate_text(text, tokenizer, model_to_use, generate_kwargs, apply_chat_template)
+        except Exception as e:
+            print(f"Failed to generate new text for {filename}: {e}")
+            return
+
+        match = re.search(r'```python\s*([\s\S]+?)\s*```', generated_text)
+        if not match:
+            print(f"No code block found in generated text for {filename}.")
+            return
+
+        new_code = match.group(1)
+
+        # Write the new content back to the file
+        try:
+            with open(file_path, 'w') as file:
+                file.write(new_code)
+            print(f"File {filename} has been updated successfully.")
+        except IOError as e:
+            print(f"Failed to write new content to file {filename}: {e}")
+
+    def extract_files_and_code(self, text):
+        files_code = []
+        pattern = r'\*\*(.+?\.py):\*\*\s*```python\s*([\s\S]+?)```'
+        matches = re.findall(pattern, text)
+        for filename, code in matches:
+            files_code.append((filename, code.strip()))
+        return files_code
+
+    def write_files_to_folder(self, files_code, folder_path):
+        for filename, code in files_code:
+            file_path = os.path.join(folder_path, filename)
+            with open(file_path, 'w') as file:
+                file.write(code)
 
     def log_history(self, user_text, generated_text):
-        history_dir = os.path.join(folder_paths.folder_names_and_paths['custom_nodes'][0][0], "ComfyUI_LLM_Node/history")
+        history_dir = os.path.join(self.comfy_ui_llm_node_path, "history")
         timestamp = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         filename = datetime.datetime.now().strftime('%Y-%m-%d') + '.txt'
         filepath = os.path.join(history_dir, filename)
@@ -175,35 +203,50 @@ class LLM_Node:
 
             if config.model_type in ["t5", "gpt2", "gpt_refact", "gemma", "llama", "mistral", "qwen2"]:
                 generated_text = self.generate_text(text, tokenizer, model_to_use, generate_kwargs, apply_chat_template)
-                
                 if CodingConfig and CodingConfig.get('execute_code'):
+                    files_code = self.extract_files_and_code(generated_text)
                     execution_attempts = 0
-                    while True:
-                        pattern = r'```python\s(.*?)```'
-                        code = re.search(pattern, generated_text, re.DOTALL)
-                        if code:
-                            extracted_code = code.group(1).strip()
-                            try:
-                                env = os.environ.copy()
-                                env["SDL_VIDEODRIVER"] = "dummy"
-                                command = ['python', '-c', extracted_code]
-                                subprocess.run(command, capture_output=True, text=True, check=True, env=env) # no output only check for errors
-                                print("Successful Execution. Exiting loop.")
+                    while execution_attempts < 10:
+                        if files_code:
+                            tmp_folder_path = os.path.join(self.comfy_ui_llm_node_path, "tmp")
+                            if self.fixmeused == False:
+                                os.makedirs(tmp_folder_path, exist_ok=True)
+                                self.write_files_to_folder(files_code, tmp_folder_path)
+                            pycache_path = os.path.join(tmp_folder_path, "__pycache__")
+                            if os.path.exists(pycache_path):
+                                shutil.rmtree(pycache_path)
+                            files = os.listdir(tmp_folder_path)
+                            files.sort(key=lambda x: x == 'main.py')
+                            for filename in files:
+                                file_path = os.path.join(tmp_folder_path, filename)
+                                try:
+                                    env = os.environ.copy()
+                                    env["SDL_VIDEODRIVER"] = "dummy"
+                                    command = ['python', file_path]
+                                    subprocess.run(command, capture_output=True, text=True, check=True, env=env) # no output only check for errors
+                                    print(f"Successful Execution: {filename}")
+                                except subprocess.CalledProcessError as e:
+                                    print(f"Execution failed, retrying... Error: {e.stderr}")
+                                    with open(file_path, 'r') as file:
+                                        file_data = file.read()
+                                    text = f"Error encountered: {e.stderr}\nFix the code. Write all code. Don't take shortcut. Don't write 'same as your original code'!\n{file_data}"
+                                    self.fixme(filename, tokenizer, model_to_use, generate_kwargs, apply_chat_template, text)
+                                    execution_attempts += 1
+                                    break
+                            else: # no more file to check
                                 break
-                            except subprocess.CalledProcessError as e:
-                                print(f"Execution failed, retrying... Error: {e.stderr}")
-                                text = f"Error encountered: {e.stderr}\nFix the code. Write whole code.\n{extracted_code}"
-                                generated_text = self.generate_text(text, tokenizer, model_to_use, generate_kwargs, apply_chat_template)
-                                continue
-                        execution_attempts += 1
-                        if execution_attempts > 10:
-                            print("Maximum execution attempts reached, exiting.")
+                        else: # no code found
                             break
                     self.log_history(text, generated_text)
                     if (CodingConfig.get('project_folder')):
-                        self.save_file(extracted_code, 'main.py', CodingConfig.get('project_folder'))
-                        file_path = os.path.join(CodingConfig.get('project_folder'), 'main.py')
-                        subprocess.run(['python', file_path], capture_output=True, text=True, check=True)
+                        for filename in files:
+                            source_file_path = os.path.join(tmp_folder_path, filename)
+                            destination_file_path = os.path.join(CodingConfig.get('project_folder'), filename)
+                            shutil.copy(source_file_path, destination_file_path)
+                        main_py_path = os.path.join(CodingConfig.get('project_folder'), 'main.py')
+                        subprocess.run(['python', main_py_path], capture_output=True, text=True, check=True)
+                    if os.path.exists(tmp_folder_path):
+                        shutil.rmtree(tmp_folder_path)
                     return (generated_text,)
                 else:
                     self.log_history(text, generated_text)
