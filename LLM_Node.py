@@ -153,7 +153,6 @@ class LLM_Node:
             generated_text = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
         else:
             generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        print(generated_text)
         return generated_text
 
     def main(self, text, seed, model, max_tokens, apply_chat_template, AdvOptionsConfig=None, QuantizationConfig=None, CodingConfig=None):
