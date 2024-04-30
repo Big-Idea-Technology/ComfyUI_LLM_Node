@@ -72,11 +72,13 @@ class LLM_Node:
 
     def fixme(self, filename, tokenizer, model_to_use, generate_kwargs, apply_chat_template, text):
         self.fixmeused = True
-        
+        generated_text = "\n\n**************************************** FIX ME loop ****************************************\n\n"
+        generated_text += text+"\n\n\n"
+
         file_path = os.path.join(self.comfy_ui_llm_node_path, "tmp", filename)
 
         try:
-            generated_text = self.generate_text(text, tokenizer, model_to_use, generate_kwargs, apply_chat_template)
+            generated_text += self.generate_text(text, tokenizer, model_to_use, generate_kwargs, apply_chat_template)
         except Exception as e:
             print(f"Failed to generate new text for {filename}: {e}")
             return
@@ -93,15 +95,27 @@ class LLM_Node:
             with open(file_path, 'w') as file:
                 file.write(new_code)
             print(f"File {filename} has been updated successfully.")
+            return generated_text
         except IOError as e:
             print(f"Failed to write new content to file {filename}: {e}")
+            return
 
     def extract_files_and_code(self, text):
         files_code = []
-        pattern = r'\*\*(.+?\.py):\*\*\s*```python\s*([\s\S]+?)```'
-        matches = re.findall(pattern, text)
-        for filename, code in matches:
-            files_code.append((filename, code.strip()))
+        # First pattern to check for filenames and associated Python code
+        primary_pattern = r'\*\*(.+?\.py):\*\*\s*```python\s*([\s\S]+?)```'
+        matches = re.findall(primary_pattern, text)
+    
+        if matches:
+            for filename, code in matches:
+                files_code.append((filename, code.strip()))
+        else:
+            # Secondary pattern to check for Python code blocks without filenames
+            secondary_pattern = r'```python\s*([\s\S]+?)\s*```'
+            code_blocks = re.findall(secondary_pattern, text)
+            for code in code_blocks:
+                files_code.append(("main.py", code.strip()))
+
         return files_code
 
     def write_files_to_folder(self, files_code, folder_path):
@@ -139,7 +153,7 @@ class LLM_Node:
             generated_text = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)[0]
         else:
             generated_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-
+        print(generated_text)
         return generated_text
 
     def main(self, text, seed, model, max_tokens, apply_chat_template, AdvOptionsConfig=None, QuantizationConfig=None, CodingConfig=None):
@@ -203,6 +217,7 @@ class LLM_Node:
 
             if config.model_type in ["t5", "gpt2", "gpt_refact", "gemma", "llama", "mistral", "qwen2"]:
                 generated_text = self.generate_text(text, tokenizer, model_to_use, generate_kwargs, apply_chat_template)
+                chat_story = generated_text
                 if CodingConfig and CodingConfig.get('execute_code'):
                     files_code = self.extract_files_and_code(generated_text)
                     execution_attempts = 0
@@ -223,21 +238,24 @@ class LLM_Node:
                                     env = os.environ.copy()
                                     env["SDL_VIDEODRIVER"] = "dummy"
                                     command = ['python', file_path]
-                                    subprocess.run(command, capture_output=True, text=True, check=True, env=env) # no output only check for errors
-                                    print(f"Successful Execution: {filename}")
+                                    try:
+                                        subprocess.run(command, capture_output=True, text=True, check=True, env=env, timeout=1) # no output only check for errors
+                                        print(f"Successful Execution: {filename}")
+                                    except subprocess.TimeoutExpired:
+                                        print("Execution timed out after 1 second. Terminating subprocess.") 
                                 except subprocess.CalledProcessError as e:
                                     print(f"Execution failed, retrying... Error: {e.stderr}")
                                     with open(file_path, 'r') as file:
                                         file_data = file.read()
                                     text = f"Error encountered: {e.stderr}\nFix the code. Write all code. Don't take shortcut. Don't write 'same as your original code'!\n{file_data}"
-                                    self.fixme(filename, tokenizer, model_to_use, generate_kwargs, apply_chat_template, text)
+                                    chat_story += self.fixme(filename, tokenizer, model_to_use, generate_kwargs, apply_chat_template, text)
                                     execution_attempts += 1
                                     break
-                            else: # no more file to check
+                            else: # no more files to check
                                 break
                         else: # no code found
                             break
-                    self.log_history(text, generated_text)
+                    self.log_history(text, chat_story)
                     if (CodingConfig.get('project_folder')):
                         for filename in files:
                             source_file_path = os.path.join(tmp_folder_path, filename)
@@ -247,10 +265,10 @@ class LLM_Node:
                         subprocess.run(['python', main_py_path], capture_output=True, text=True, check=True)
                     if os.path.exists(tmp_folder_path):
                         shutil.rmtree(tmp_folder_path)
-                    return (generated_text,)
+                    return (chat_story,)
                 else:
-                    self.log_history(text, generated_text)
-                    return (generated_text,)
+                    self.log_history(text, chat_story)
+                    return (chat_story,)
             elif config.model_type == "bert":
                 return ("BERT model detected; specific task handling not implemented in this example.",)
 
