@@ -10,6 +10,6 @@ Repository = "https://github.com/Big-Idea-Technology/ComfyUI_LLM_Node"
 #  Used by Comfy Registry https://comfyregistry.org
 
 [tool.comfy]
-PublisherId = ""
+PublisherId = "nazgut"
 DisplayName = "ComfyUI_LLM_Node"
 Icon = ""
