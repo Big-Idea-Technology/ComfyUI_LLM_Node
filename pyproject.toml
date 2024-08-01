@@ -2,7 +2,7 @@
 name = "comfyui_llm_node"
 description = "The LLM_Node enhances ComfyUI by integrating advanced language model capabilities, enabling a wide range of NLP tasks such as text generation, content summarization, question answering, and more. This flexibility is powered by various transformer model architectures from the transformers library, allowing for the deployment of models like T5, GPT-2, and others based on your project's needs."
 version = "1.0.0"
-license = "LICENSE"
+license = { file = "LICENSE" }
 dependencies = ["transformers>=4.0.0", "llama-cpp-python", "torch>=1.7.1", "accelerate"]
 
 [project.urls]
